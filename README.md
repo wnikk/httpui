@@ -22,7 +22,6 @@ $(document).ready(function() {
         $(this).httpUi({
             method: 'PUT',
             url: '/your-url',
-            context: this,
             onSuccess: (data, response) => console.log('Success:', data),
             onError: (error, response) => console.error('Error:', error)
         });
