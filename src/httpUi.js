@@ -4,7 +4,7 @@
         // AMD. Register as an anonymous module.
         define([], factory);
     } else if (typeof module === 'object' && module.exports) {
-        // Node. Does not work with strict CommonJS, but only CommonJS-like environments that support module.exports, like Node.
+        // Node. Does not work with strict CommonJS, but only CommonJS-like environments that support module.exports.
         module.exports = factory();
     } else {
         // Browser globals (root is window)
@@ -15,7 +15,7 @@
     /**
      * Class representing a query UI.
      */
-    class queryUi
+    class QueryUi
     {
         /**
          * Create a query UI.
@@ -30,33 +30,51 @@
                 };
             }
             if (!params) {params = {};}
-            var query = {
-                id: null,
+            let query = {
+                id: this.generateId(),
                 url: null,
                 method: 'GET',
                 headers: {
                     'Accept': 'application/json, text/javascript',
                     'X-Requested-With': 'XMLHttpRequest',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content
                 },
                 data: undefined,
+                beforeRequest: null,
                 onSuccess: null,
                 onError: null,
                 context: document.body,
                 contextLock: undefined,
                 contextStatus: undefined,
-                ui: null,
+                ui: null
+            };
+            const token = document.querySelector('meta[name="csrf-token"]')?.content;
+            if (token) {query.headers['X-CSRF-TOKEN'] = token;}
+
+            query.headers['X-Requested-Id'] = query.id;
+
+            query = {
+                ...query,
                 ...params
             };
+
             Object.assign(this, query);
         }
 
+        /**
+         * Generate a unique ID/
+         *
+         * @returns {string}
+         */
+        generateId()
+        {
+            return (new Date().getTime())+'-'+ Math.floor(Math.random() * 0x75bcd15).toString(16);
+        }
         /**
          * Add response data to the query.
          *
          * @param {Object} responseObject - The response object.
          * @param {Object} responseData - The response data.
-         * @returns {queryUi} The updated query UI.
+         * @returns {QueryUi} The updated query UI.
          */
         addResponse(responseObject, responseData)
         {
@@ -70,7 +88,7 @@
     /**
      * Class representing the UI.
      */
-    class ui
+    class Ui
     {
         /**
          * Create a UI.
@@ -79,13 +97,12 @@
          */
         constructor(params)
         {
-            this.id = params?.id??('0'+(new Date().getTime()) + '' + (Math.random() * 1000));
+            this.id = (params?.id?.replace(/[^a-z0-9]/gi, ''))??('0'+(new Date().getTime()) + '' + (Math.random() * 1000));
             this.context = params?.context??document.body;
             this.contextLock   = params?.contextLock??this.context;
             this.contextStatus = params?.contextStatus??this.context;
 
             this.errorsMap = {
-                'error': '&#9888; ',
                 '0': 'An error occurred: Could not connect to the server, please check your internet connection.',
                 '400': 'An error occurred: 400 - request failed',
                 '404': 'An error occurred: 404 - page not found or address changed',
@@ -93,6 +110,10 @@
                 'parsererror': 'An error occurred: parser - the server returned an invalid JSON request',
                 'timeout': 'An error occurred: timeout - the request timed out too long',
                 'unknown': 'An error occurred: ',
+            };
+            this.icons = {
+                success: '&#x2713;',
+                danger: '&#9888;',
             };
         }
 
@@ -150,8 +171,9 @@
         {
             return this.errorsMap[response?.status]
                 ?? this.errorsMap[response?.statusText]
-                //?? this.errorsMap[errorThrown]
-                ?? `${this.errorsMap.unknown}${response?.status} ${response?.statusText}`;
+                ?? this.errorsMap[response?.message]
+                ?? response?.message
+                ??`${this.errorsMap.unknown}${response?.status} ${response?.statusText}`;
         }
 
         /**
@@ -162,7 +184,8 @@
          */
         escapeHtml(unsafe)
         {
-            return unsafe
+            if(!unsafe) {return '';}
+            return (unsafe+'')
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")
@@ -175,9 +198,10 @@
          *
          * @param {string} html - The HTML content of the alert.
          * @param {string} type - The type of the alert.
+         * @param {string} icon - The icon for the alert.
          * @returns {HTMLElement} The alert element.
          */
-        showAlert(html, type)
+        showAlert(html, type, icon = null)
         {
             const context = this.contextStatus;
             const ajaxId = this.id;
@@ -190,7 +214,7 @@
             alert.innerHTML = `
                 <div id="alert-${ajaxId}" class="alert alert-dismissible alert-${type}" role="alert">
                     <button type="button" class="btn-close" style="float: right;"></button>
-                    <div>${html}</div>
+                    <div>${icon?icon:''} ${html}</div>
                 </div>`;
             context.prepend(alert);
             alert.querySelector('.btn-close').addEventListener(
@@ -204,12 +228,15 @@
          * Display a success message.
          *
          * @param {string} html - The HTML content of the success message.
+         * @param {string} icon - The icon for the success message.
          */
-        showSuccess(html)
+        showSuccess(html, icon = null)
         {
+            if (icon === null) {icon = this.icons.success;}
             this.showAlert(
                 html,
-                'success'
+                'success',
+                icon
             );
         }
 
@@ -223,7 +250,8 @@
             this.showAlert(
                 '<strong>'+json?.message+'</strong>'+
                 (json.errors?this.errorsToUlTree(json.errors):''),
-                'danger'
+                'danger',
+                this.icons.danger
             );
         }
 
@@ -245,31 +273,36 @@
          * Display an alert box for an unexpected error.
          *
          * @param {Object} jqXHR - The jQuery XMLHttpRequest object.
+         * @param {boolean} showDetailed - Whether to show detailed error information.
          * @returns {HTMLElement} The alert element.
          */
-        showAlertUnexpected(jqXHR)
+        showAlertUnexpected(jqXHR, showDetailed = false)
         {
             const errorText = this.#getErrorText(jqXHR);
-
-            const html = `
-                <button type="button" class="btn-detailed">Detailed...</button>
-                <strong>${this.errorsMap.error}</strong>${this.escapeHtml(errorText)}
-            `;
+            let html = this.escapeHtml(errorText);
+            if (showDetailed) {
+                html = html + '<button type="button" class="btn-detailed">Detailed...</button>';
+            }
             const alert = this.showAlert(
                 html,
                 'danger',
+                this.icons.danger
             );
+            if (!showDetailed) {
+                return alert;
+            }
+
             const report = document.createElement('div');
             report.className = 'aj-error-report';
             report.style.zIndex = '999999';
             report.style.display = 'none';
             report.innerHTML = `
                 <button type="button" class="btn-detailed">html</button>
-                <strong>Status code</strong>: ${this.escapeHtml(jqXHR.status.toString())}<br/>
-                <strong>Status text</strong>: ${this.escapeHtml(jqXHR.statusText)}<br/>
+                <strong>Status code</strong>: ${this.escapeHtml(jqXHR?.status?.toString())}<br/>
+                <strong>Status text</strong>: ${this.escapeHtml(jqXHR?.statusText)}<br/>
                 <strong>Response body</strong>:
                 <div class="aj-error-response">
-                    <textarea>${this.escapeHtml(jqXHR.responseText)}</textarea>
+                    <textarea>${this.escapeHtml(jqXHR?.responseText)}</textarea>
                 </div>
             `;
             alert.append(report);
@@ -438,11 +471,11 @@
         /**
          * Display an error message box.
          *
-         * @param {queryUi} query - The query object.
+         * @param {QueryUi} query - The query object.
          */
         displayAlert(query)
         {
-            if (!(Object(query) instanceof queryUi)) {
+            if (!(Object(query) instanceof QueryUi)) {
                 return console.error('Invalid query object:', query);
             }
             const jqXHR = query.response;
@@ -455,18 +488,18 @@
             if (typeof (jqXHR.data) === 'object' && jqXHR.data?.message) {
                 return query.ui.showAlertExtended(jqXHR.data);
             }
-            return query.ui.showAlertUnexpected(jqXHR);
+            return query.ui.showAlertUnexpected(jqXHR, jqXHR?.readyState);
         }
 
         /**
          * Prepare AJAX query parameters.
          *
          * @param {Object} params - The parameters for the query.
-         * @returns {queryUi} The prepared query object.
+         * @returns {QueryUi} The prepared query object.
          */
         #prepareQuery(params)
         {
-            const query = new queryUi(params);
+            const query = new QueryUi(params);
 
             if (typeof query.data === 'undefined' && query.method !== 'GET' && query.context instanceof HTMLElement) {
                 query.data = this.serializeForm(query.context);
@@ -484,7 +517,7 @@
         /**
          * Send form data via jQuery AJAX.
          *
-         * @param {queryUi} query - The query object.
+         * @param {QueryUi} query - The query object.
          * @param {Function} resolve - The resolve function for the promise.
          * @param {Function} reject - The reject function for the promise.
          * @returns {Promise} The jQuery AJAX promise.
@@ -515,7 +548,7 @@
         /**
          * Send to fetch if jQuery is not available.
          *
-         * @param {queryUi} query - The query object.
+         * @param {QueryUi} query - The query object.
          * @param {Function} resolve - The resolve function for the promise.
          * @param {Function} reject - The reject function for the promise.
          * @returns {Promise} The fetch promise.
@@ -549,7 +582,7 @@
          * Handle AJAX request failure.
          *
          * @param {Object} jqXHR - The jQuery XMLHttpRequest object.
-         * @param {queryUi} query - The query object.
+         * @param {QueryUi} query - The query object.
          * @param {Function} reject - The reject function for the promise.
          */
         #requestFail(jqXHR, query, reject) {
@@ -573,12 +606,13 @@
          * @param {Object} [params.data] - The data to be sent with the request.
          * @param {string} [params.id] - The unique ID of the request.
          * @param {HTMLElement} [params.context] - The context element for the request.
+         * @param {Function} [params.beforeRequest] - Function to be called before the request is sent.
          * @param {Function} [params.onSuccess] - The callback function to be called on success.
          * @param {Function} [params.onError] - The callback function to be called on error.
          * @param {HTMLElement} [params.contextLock=context] - The context element to be locked during the request.
          * @param {HTMLElement} [params.contextStatus=context] - The context element for status messages.
          * @returns {Promise<Object>} The promise for the AJAX request.
-         * @returns {Object} return - The queryUi object of request.
+         * @returns {Object} return - The QueryUi object of request.
          * @returns {Object} return.data - The data sent with the response.
          * @returns {Object} return.response - The response object.
          * @returns {Object} return.responseData - The response data.
@@ -587,11 +621,9 @@
          */
         async request(params)
         {
-            const ajaxId = params.id || (new Date().getTime())+'-'+ Math.floor(Math.random() * 0x75bcd15).toString(16);
             const query = this.#prepareQuery(params);
-            query.id = ajaxId;
-            query.headers['X-Requested-Id'] = ajaxId;
-            query.ui = new ui(query);
+            query.ui = new Ui(query);
+            if (query.beforeRequest) {query.beforeRequest(query);}
             return new Promise((resolve, reject) => {
                 if (window.jQuery) {
                     this.#sendRequestJQuery(query, resolve, reject);
