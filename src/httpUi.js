@@ -13,10 +13,50 @@
 }(typeof self !== 'undefined' ? self : this, function() {
 
     /**
+     * The default settings for the UI.
+     * @type {Object}
+     */
+    let defaults = {
+        errorsMap: {
+            '0': 'An error occurred: Could not connect to the server, please check your internet connection.',
+            '400': 'An error occurred: 400 - request failed',
+            '404': 'An error occurred: 404 - page not found or address changed',
+            '419': 'An error occurred: 419 - page expired, please reload the page',
+            '500': 'The server encountered a 500 - unknown error',
+            'parsererror': 'An error occurred: parser - the server returned an invalid JSON request',
+            'timeout': 'An error occurred: timeout - the request timed out too long',
+            'unknown': 'An error occurred: ',
+        },
+        icons: {
+            success: '&#x2713;',
+            danger: '&#9888;',
+        }
+    };
+
+    /**
      * Class representing a query UI.
      */
     class QueryUi
     {
+        id = this.generateId();
+        url = null;
+        method = 'GET';
+        headers = {
+            'Accept': 'application/json, text/javascript',
+            'X-Requested-With': 'XMLHttpRequest',
+        };
+        data = undefined;
+        requestData = undefined;
+        response = undefined;
+        responseData = undefined;
+        beforeRequest = null;
+        onSuccess = null;
+        onError = null;
+        context = document.body;
+        contextLock = undefined;
+        contextStatus = undefined;
+        ui = null;
+
         /**
          * Create a query UI.
          *
@@ -24,40 +64,18 @@
          */
         constructor(params)
         {
+            this.headers['X-Requested-Id'] = this.id;
+
+            const token = document.querySelector('meta[name="csrf-token"]')?.content;
+            if (token) {this.headers['X-CSRF-TOKEN'] = token;}
+
             if (typeof params === 'string' || params instanceof String) {
                 params = {
                     url: params,
                 };
             }
             if (!params) {params = {};}
-            let query = {
-                id: this.generateId(),
-                url: null,
-                method: 'GET',
-                headers: {
-                    'Accept': 'application/json, text/javascript',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-                data: undefined,
-                beforeRequest: null,
-                onSuccess: null,
-                onError: null,
-                context: document.body,
-                contextLock: undefined,
-                contextStatus: undefined,
-                ui: null
-            };
-            const token = document.querySelector('meta[name="csrf-token"]')?.content;
-            if (token) {query.headers['X-CSRF-TOKEN'] = token;}
-
-            query.headers['X-Requested-Id'] = query.id;
-
-            query = {
-                ...query,
-                ...params
-            };
-
-            Object.assign(this, query);
+            Object.assign(this, params);
         }
 
         /**
@@ -67,7 +85,7 @@
          */
         generateId()
         {
-            return (new Date().getTime())+'-'+ Math.floor(Math.random() * 0x75bcd15).toString(16);
+            return (new Date().getTime())+'-'+ Math.floor(Math.random() * 999);
         }
         /**
          * Add response data to the query.
@@ -80,7 +98,7 @@
         {
             this.requestData = this.data;
             this.response = responseObject;
-            this.data = responseData;
+            this.data = this.responseData = responseData;
             return this;
         }
     }
@@ -90,6 +108,13 @@
      */
     class Ui
     {
+        id = null;
+        context = null;
+        contextLock = null;
+        contextStatus = null;
+        errorsMap = defaults.errorsMap;
+        icons = defaults.icons;
+
         /**
          * Create a UI.
          *
@@ -97,24 +122,10 @@
          */
         constructor(params)
         {
-            this.id = (params?.id?.replace(/[^a-z0-9]/gi, ''))??('0'+(new Date().getTime()) + '' + (Math.random() * 1000));
+            this.id = (params?.id?.replace(/[^a-z0-9]/gi, ''))??('0'+(new Date().getTime()) + '' + (Math.random() * 999));
             this.context = params?.context??document.body;
             this.contextLock   = params?.contextLock??this.context;
             this.contextStatus = params?.contextStatus??this.context;
-
-            this.errorsMap = {
-                '0': 'An error occurred: Could not connect to the server, please check your internet connection.',
-                '400': 'An error occurred: 400 - request failed',
-                '404': 'An error occurred: 404 - page not found or address changed',
-                '500': 'The server encountered a 500 - unknown error',
-                'parsererror': 'An error occurred: parser - the server returned an invalid JSON request',
-                'timeout': 'An error occurred: timeout - the request timed out too long',
-                'unknown': 'An error occurred: ',
-            };
-            this.icons = {
-                success: '&#x2713;',
-                danger: '&#9888;',
-            };
         }
 
         /**
@@ -213,7 +224,7 @@
 
             alert.innerHTML = `
                 <div id="alert-${ajaxId}" class="alert alert-dismissible alert-${type}" role="alert">
-                    <button type="button" class="btn-close" style="float: right;"></button>
+                    <button type="button" class="btn btn-close" style="float: right;"></button>
                     <div>${icon?icon:''} ${html}</div>
                 </div>`;
             context.prepend(alert);
@@ -229,11 +240,12 @@
          *
          * @param {string} html - The HTML content of the success message.
          * @param {string} icon - The icon for the success message.
+         * @returns {HTMLElement} The alert element.
          */
         showSuccess(html, icon = null)
         {
             if (icon === null) {icon = this.icons.success;}
-            this.showAlert(
+            return this.showAlert(
                 html,
                 'success',
                 icon
@@ -244,10 +256,11 @@
          * Display an extended alert box.
          *
          * @param {Object} json - The JSON object containing the alert message and errors.
+         * @returns {HTMLElement} The alert element.
          */
         showAlertExtended(json)
         {
-            this.showAlert(
+            return this.showAlert(
                 '<strong>'+json?.message+'</strong>'+
                 (json.errors?this.errorsToUlTree(json.errors):''),
                 'danger',
@@ -263,8 +276,7 @@
         showAlertPageExpired()
         {
             const data = {
-                message: "Page Expired",
-                errors: ["Please reload the page."],
+                message: defaults.errorsMap[419],
             };
             return this.showAlertExtended(data);
         }
@@ -281,7 +293,7 @@
             const errorText = this.#getErrorText(jqXHR);
             let html = this.escapeHtml(errorText);
             if (showDetailed) {
-                html = html + '<button type="button" class="btn-detailed">Detailed...</button>';
+                html += '<button type="button" class="btn btn-detailed">Detailed...</button>';
             }
             const alert = this.showAlert(
                 html,
@@ -307,17 +319,18 @@
             `;
             alert.append(report);
 
-            alert.querySelector('.alert .btn-detailed').addEventListener('click', () => {
+            alert.querySelector('.alert .btn-detailed').addEventListener('click', (e) => {
                 alert.querySelector('.aj-error-report').style.display = 'block';
+                e.target.style.display = 'none';
             });
-            report.querySelector('.btn-detailed').addEventListener('click', () => {
+            report.querySelector('.btn-detailed').addEventListener('click', (e) => {
                 const html = report.querySelector('textarea').value;
                 const iframe = document.createElement('iframe');
                 iframe.className = 'aj-error-response-iframe';
                 report.querySelector('.aj-error-response').innerHTML = '';
                 report.querySelector('.aj-error-response').appendChild(iframe);
                 setTimeout(() => iframe.contentDocument.body.innerHTML = html, 100);
-                report.querySelector('.aj-error-report .btn-detailed').style.display = 'none';
+                e.target.style.display = 'none';
             });
             return alert;
         }
@@ -361,7 +374,7 @@
         /**
          * Flatten a nested array.
          *
-         * @param {Array} array - The nested array.
+         * @param {Object} array - The nested array.
          * @returns {Array} The flattened array.
          */
         flatDeep(array)
@@ -403,6 +416,15 @@
                     return target.request(params)
                 }
             })
+        }
+
+        /**
+         * Set the default options.
+         *
+         * @param {Object} newDefaults - The new default options.
+         */
+        setDefaults(newDefaults) {
+            defaults = this.extend(defaults, newDefaults);
         }
 
         /**
