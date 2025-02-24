@@ -8,7 +8,7 @@
         module.exports = factory();
     } else {
         // Browser globals (root is window)
-        global.CentUi = factory();
+        global.httpUi = factory();
     }
 }(typeof self !== 'undefined' ? self : this, function() {
 
@@ -668,14 +668,14 @@
         async patch(url, data, params) { return this.request({method: 'PATCH', url: url, ...params}); }
     }
 
+    // Create an instance of HttpUi
     const instance = new HttpUi();
 
+    // Integrate with jQuery if available
     if (typeof window.jQuery !== 'undefined') {
-        window.jQuery.fn.httpUi =  instance;
-        window.httpUi = instance;
-    } else {
-        window.httpUi = instance;
+        window.jQuery.fn.httpUi = instance;
     }
 
+    // Return the instance for module and direct browser usage
     return instance;
 }));
