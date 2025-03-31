@@ -1,3 +1,8 @@
+/*!
+ * httpUi.js v3.0.0
+ * https://github.com/wnikk/httpui
+ * (c) 2025 Released under the MIT License
+ */
 'use strict';
 (function(global, factory) {
     if (typeof define === 'function' && define.amd) {
