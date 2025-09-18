@@ -1,5 +1,5 @@
 /*!
- * httpUi.js v3.0.0
+ * httpUi.js v3.1.0
  * https://github.com/wnikk/httpui
  * (c) 2025 Released under the MIT License
  */
@@ -530,6 +530,26 @@
 
             if (typeof query.data === 'undefined' && query.method !== 'GET' && query.context instanceof HTMLElement) {
                 query.data = this.serializeForm(query.context);
+                // if form have files query set correct content type for form data
+                // Content-Type = multipart/form-data automatically set by browser
+                // if form have no files and no enctype set, set content type to urlencoded
+                // if form have enctype set, do nothing, user want custom content type
+                if (
+                    query.data
+                    && typeof query.data === 'object'
+                    && query.data instanceof FormData
+                    && typeof query.headers['Content-Type'] === 'undefined'
+                    && query.context.nodeName === "FORM"
+                    && query.context.getAttribute('enctype') === null
+                    && query.context.querySelector('input[type="file"]') === null
+                ) {
+                    const urlEncodedData = new URLSearchParams();
+                    for (const [key, value] of query.data.entries()) {
+                        urlEncodedData.append(key, value);
+                    }
+                    query.data = urlEncodedData.toString();
+                    query.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+                }
             }
             if (query.data && typeof query.data === 'object' && !(query.data instanceof FormData)) {
                 query.data = JSON.stringify(query.data);
